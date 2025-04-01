@@ -1,366 +1,204 @@
-.data
-# DONOTMODIFYTHISLINE
-frameBuffer: .space 0x80000 # 512 wide X 256 high pixels
-M: .word 100
-N: .word 76
-cr: .word 0
-cg: .word 63
-cb: .word 0
-# DONOTMODIFYTHISLINE
-# Your other variables go BELOW here only
-yellow: .word 0x00FFFF00     # Yellow color for background
-arrowColor: .word 0          # Will store the arrow color
-arrowHeadColor: .word 0      # Will store the arrowhead color
-displayWidth: .word 512      # Width of the display
-displayHeight: .word 256     # Height of the display
-arrowHeadSize: .word 8       # Size of arrowhead (overhang)
-arrowLength: .word 12        # Length of arrow shaft
-totalWidth: .word 0          # Total width of the figure
-totalHeight: .word 0         # Total height of the figure
-startX: .word 0              # Starting X coordinate
-startY: .word 0              # Starting Y coordinate
+#IVERSON
+.data                           # Start of data segment (static/predefined data)
+frameBuffer: .space 0x80000     # $s0 <- base address for 512x256 pixels, 4 bytes per pixel
+M: .word 248                    # $s1 <- outer size of L-shape (width/height)
+N: .word 5                     # $s2 <- inner square size (used to calculate thickness)
+cr: .word 0                     # $s3 <- red component for arrowhead color (0-255)
+cg: .word 63                    # $s4 <- green component for arrowhead color (0-255)
+cb: .word 0                     # $s5 <- blue component for arrowhead color (0-255)
+DISPLAY_WIDTH: .word 512        # Display width in pixels
+DISPLAY_HEIGHT: .word 256       # Display height in pixels
 
-.text
-main:
-    # Calculate the arrow colors
-    # First, calculate the arrowhead color from cr, cg, cb
-    lw $t0, cr             # Load red component
-    lw $t1, cg             # Load green component
-    lw $t2, cb             # Load blue component
-    
-    # Create arrowhead color
-    sll $t0, $t0, 16       # Shift red to bits 23:16
-    sll $t1, $t1, 8        # Shift green to bits 15:8
-    or $t3, $t0, $t1       # Combine red and green
-    or $t3, $t3, $t2       # Add blue component
-    sw $t3, arrowHeadColor # Store arrowhead color
-    
-    # Calculate arrow color (4x each component)
-    lw $t0, cr             # Load red component
-    lw $t1, cg             # Load green component
-    lw $t2, cb             # Load blue component
-    
-    sll $t0, $t0, 2        # Multiply red by 4
-    sll $t1, $t1, 2        # Multiply green by 4
-    sll $t2, $t2, 2        # Multiply blue by 4
-    
-    # Check for overflow in each component
-    li $t3, 255            # Maximum value for any component
-    blt $t0, $t3, redOK    # If red <= 255, it's OK
-    move $t0, $t3          # Otherwise, set to max
-redOK:
-    blt $t1, $t3, greenOK  # If green <= 255, it's OK
-    move $t1, $t3          # Otherwise, set to max
-greenOK:
-    blt $t2, $t3, blueOK   # If blue <= 255, it's OK
-    move $t2, $t3          # Otherwise, set to max
-blueOK:
-    
-    # Create arrow color
-    sll $t0, $t0, 16       # Shift red to bits 23:16
-    sll $t1, $t1, 8        # Shift green to bits 15:8
-    or $t3, $t0, $t1       # Combine red and green
-    or $t3, $t3, $t2       # Add blue component
-    sw $t3, arrowColor     # Store arrow color
-    
-    # Calculate total dimensions
-    lw $t0, M              # Load M
-    lw $t1, N              # Load N
-    lw $t2, arrowHeadSize  # Load arrowhead size
-    lw $t3, arrowLength    # Load arrow length
-    
-    # Total width = M + arrowLength + arrowHeadSize
-    add $t4, $t0, $t3      # M + arrowLength
-    add $t4, $t4, $t2      # M + arrowLength + arrowHeadSize
-    sw $t4, totalWidth     # Store total width
-    
-    # Total height = N (for rectangle)
-    move $t5, $t1          # N
-    
-    # Check if arrowhead height is larger than N
-    sll $t6, $t2, 1        # arrowHeadSize * 2
-    ble $t6, $t1, heightOK # If arrowheadHeight <= N, use N
-    move $t5, $t6          # Otherwise, use arrowheadHeight
-heightOK:
-    sw $t5, totalHeight    # Store total height
-    
-    # Check if figure can be drawn
-    lw $t0, totalWidth     # Load total width
-    lw $t1, totalHeight    # Load total height
-    lw $t2, displayWidth   # Load display width
-    lw $t3, displayHeight  # Load display height
-    
-    # Check if figure fits in display
-    bgt $t0, $t2, drawBackgroundOnly # If width too large, only draw background
-    bgt $t1, $t3, drawBackgroundOnly # If height too large, only draw background
-    
-    # Check if figure can be centered exactly
-    sub $t4, $t2, $t0      # displayWidth - totalWidth
-    sub $t5, $t3, $t1      # displayHeight - totalHeight
-    
-    # Check if horizontal centering possible
-    andi $t6, $t4, 1       # $t4 mod 2
-    bne $t6, $zero, drawBackgroundOnly # If odd, we can't center exactly
-    
-    # Check if vertical centering possible
-    andi $t6, $t5, 1       # $t5 mod 2
-    bne $t6, $zero, drawBackgroundOnly # If odd, we can't center exactly
-    
-    # Calculate starting coordinates
-    srl $t4, $t4, 1        # (displayWidth - totalWidth) / 2
-    srl $t5, $t5, 1        # (displayHeight - totalHeight) / 2
-    sw $t4, startX         # Store starting X
-    sw $t5, startY         # Store starting Y
-    
-    # All checks passed, draw the figure
-    j drawFigure
-    
-drawBackgroundOnly:
-    # Draw only the background
-    la $t0, frameBuffer    # $t0 = base address of frame buffer
-    li $t1, 0              # $t1 = counter
-    lw $t2, displayWidth   # $t2 = display width
-    lw $t3, displayHeight  # $t3 = display height
-    mul $t4, $t2, $t3      # $t4 = total number of pixels
-    lw $t5, yellow         # $t5 = yellow color
-    
-backgroundLoop:
-    sw $t5, 0($t0)         # Store yellow at current pixel
-    addi $t0, $t0, 4       # Move to next pixel
-    addi $t1, $t1, 1       # Increment counter
-    blt $t1, $t4, backgroundLoop # Continue if not done
-    
-    # Exit program
-    li $v0, 10             # Exit syscall
-    syscall
-    
-drawFigure:
-    # Draw the entire figure
-    # First, draw the background
-    la $t0, frameBuffer    # $t0 = base address of frame buffer
-    li $t1, 0              # $t1 = counter
-    lw $t2, displayWidth   # $t2 = display width
-    lw $t3, displayHeight  # $t3 = display height
-    mul $t4, $t2, $t3      # $t4 = total number of pixels
-    lw $t5, yellow         # $t5 = yellow color
-    
-figureBackgroundLoop:
-    sw $t5, 0($t0)         # Store yellow at current pixel
-    addi $t0, $t0, 4       # Move to next pixel
-    addi $t1, $t1, 1       # Increment counter
-    blt $t1, $t4, figureBackgroundLoop # Continue if not done
-    
-    # Draw the rectangle
-    lw $t0, startX         # $t0 = starting X
-    lw $t1, startY         # $t1 = starting Y
-    lw $t2, M              # $t2 = width (M)
-    lw $t3, N              # $t3 = height (N)
-    lw $t4, arrowColor     # $t4 = arrow color
-    
-    # Draw top horizontal line
-    move $t5, $t0          # $t5 = current X
-    move $t6, $t1          # $t6 = current Y
-    
-topLineLoop:
-    # Calculate pixel address
-    la $t7, frameBuffer    # $t7 = base address
-    lw $t8, displayWidth   # $t8 = display width
-    mul $t8, $t6, $t8      # $t8 = Y * display width
-    add $t8, $t8, $t5      # $t8 = Y * display width + X
-    sll $t8, $t8, 2        # $t8 = 4 * (Y * display width + X)
-    add $t7, $t7, $t8      # $t7 = address of current pixel
-    
-    sw $t4, 0($t7)         # Store color at current pixel
-    
-    addi $t5, $t5, 1       # Increment X
-    sub $t7, $t5, $t0      # $t7 = X - startX
-    ble $t7, $t2, topLineLoop # Continue if not done
-    
-    # Draw right vertical line
-    move $t5, $t0          # $t5 = startX
-    add $t5, $t5, $t2      # $t5 = startX + M
-    move $t6, $t1          # $t6 = startY
-    
-rightLineLoop:
-    # Calculate pixel address
-    la $t7, frameBuffer    # $t7 = base address
-    lw $t8, displayWidth   # $t8 = display width
-    mul $t8, $t6, $t8      # $t8 = Y * display width
-    add $t8, $t8, $t5      # $t8 = Y * display width + X
-    sll $t8, $t8, 2        # $t8 = 4 * (Y * display width + X)
-    add $t7, $t7, $t8      # $t7 = address of current pixel
-    
-    sw $t4, 0($t7)         # Store color at current pixel
-    
-    addi $t6, $t6, 1       # Increment Y
-    sub $t7, $t6, $t1      # $t7 = Y - startY
-    ble $t7, $t3, rightLineLoop # Continue if not done
-    
-    # Draw bottom horizontal line
-    move $t5, $t0          # $t5 = startX
-    move $t6, $t1          # $t6 = startY
-    add $t6, $t6, $t3      # $t6 = startY + N
-    
-bottomLineLoop:
-    # Calculate pixel address
-    la $t7, frameBuffer    # $t7 = base address
-    lw $t8, displayWidth   # $t8 = display width
-    mul $t8, $t6, $t8      # $t8 = Y * display width
-    add $t8, $t8, $t5      # $t8 = Y * display width + X
-    sll $t8, $t8, 2        # $t8 = 4 * (Y * display width + X)
-    add $t7, $t7, $t8      # $t7 = address of current pixel
-    
-    sw $t4, 0($t7)         # Store color at current pixel
-    
-    addi $t5, $t5, 1       # Increment X
-    sub $t7, $t5, $t0      # $t7 = X - startX
-    ble $t7, $t2, bottomLineLoop # Continue if not done
-    
-    # Draw left vertical line
-    move $t5, $t0          # $t5 = startX
-    move $t6, $t1          # $t6 = startY
-    
-leftLineLoop:
-    # Calculate pixel address
-    la $t7, frameBuffer    # $t7 = base address
-    lw $t8, displayWidth   # $t8 = display width
-    mul $t8, $t6, $t8      # $t8 = Y * display width
-    add $t8, $t8, $t5      # $t8 = Y * display width + X
-    sll $t8, $t8, 2        # $t8 = 4 * (Y * display width + X)
-    add $t7, $t7, $t8      # $t7 = address of current pixel
-    
-    sw $t4, 0($t7)         # Store color at current pixel
-    
-    addi $t6, $t6, 1       # Increment Y
-    sub $t7, $t6, $t1      # $t7 = Y - startY
-    ble $t7, $t3, leftLineLoop # Continue if not done
-    
-    # Draw arrow shaft
-    lw $t0, startX         # $t0 = startX
-    lw $t1, startY         # $t1 = startY
-    lw $t2, M              # $t2 = width (M)
-    lw $t3, N              # $t3 = height (N)
-    lw $t4, arrowColor     # $t4 = arrow color
-    lw $t5, arrowLength    # $t5 = arrow length
-    
-    # Calculate arrow shaft starting point
-    add $t6, $t0, $t2      # $t6 = startX + M (right edge of rectangle)
-    add $t7, $t1, $t3      # $t7 = startY + N (bottom edge of rectangle)
-    srl $t8, $t3, 1        # $t8 = N / 2
-    sub $t7, $t7, $t8      # $t7 = startY + N - N/2 (center of rectangle)
-    
-    # Draw arrow shaft
-    move $t8, $t6          # $t8 = current X
-    move $t9, $t7          # $t9 = current Y
-    
-arrowShaftLoop:
-    # Calculate pixel address
-    la $s0, frameBuffer    # $s0 = base address
-    lw $s1, displayWidth   # $s1 = display width
-    mul $s1, $t9, $s1      # $s1 = Y * display width
-    add $s1, $s1, $t8      # $s1 = Y * display width + X
-    sll $s1, $s1, 2        # $s1 = 4 * (Y * display width + X)
-    add $s0, $s0, $s1      # $s0 = address of current pixel
-    
-    sw $t4, 0($s0)         # Store color at current pixel
-    
-    addi $t8, $t8, 1       # Increment X
-    sub $s0, $t8, $t6      # $s0 = X - startX
-    ble $s0, $t5, arrowShaftLoop # Continue if not done
-    
-    # Draw arrowhead
-    lw $t0, startX         # $t0 = startX
-    lw $t1, startY         # $t1 = startY
-    lw $t2, M              # $t2 = width (M)
-    lw $t3, N              # $t3 = height (N)
-    lw $t4, arrowHeadColor # $t4 = arrowhead color
-    lw $t5, arrowLength    # $t5 = arrow length
-    lw $t6, arrowHeadSize  # $t6 = arrowhead size
-    
-    # Calculate arrowhead starting point
-    add $t7, $t0, $t2      # $t7 = startX + M (right edge of rectangle)
-    add $t7, $t7, $t5      # $t7 = startX + M + arrowLength (end of arrow shaft)
-    add $t8, $t1, $t3      # $t8 = startY + N (bottom edge of rectangle)
-    srl $t9, $t3, 1        # $t9 = N / 2
-    sub $t8, $t8, $t9      # $t8 = startY + N - N/2 (center of rectangle)
-    
-    # Draw arrowhead
-    sub $s0, $t8, $t6      # $s0 = center Y - arrowHeadSize (top of arrowhead)
-    add $s1, $t8, $t6      # $s1 = center Y + arrowHeadSize (bottom of arrowhead)
-    add $s2, $t7, $t6      # $s2 = arrowTip X
-    
-    # Draw arrowhead triangle
-    move $s3, $t7          # $s3 = current X
-    move $s4, $s0          # $s4 = current Y (top of arrowhead)
-    
-    # Calculate slope for top line
-    li $s5, 1              # $s5 = X increment
-    li $s6, 1              # $s6 = Y increment
-    
-arrowheadTopLoop:
-    # Calculate pixel address
-    la $s7, frameBuffer    # $s7 = base address
-    lw $t0, displayWidth   # $t0 = display width
-    mul $t0, $s4, $t0      # $t0 = Y * display width
-    add $t0, $t0, $s3      # $t0 = Y * display width + X
-    sll $t0, $t0, 2        # $t0 = 4 * (Y * display width + X)
-    add $s7, $s7, $t0      # $s7 = address of current pixel
-    
-    sw $t4, 0($s7)         # Store color at current pixel
-    
-    addi $s3, $s3, 1       # Increment X
-    addi $s4, $s4, 1       # Increment Y
-    blt $s3, $s2, arrowheadTopLoop # Continue if not done
-    
-    # Draw bottom line of arrowhead
-    move $s3, $t7          # $s3 = current X
-    move $s4, $s1          # $s4 = current Y (bottom of arrowhead)
-    
-arrowheadBottomLoop:
-    # Calculate pixel address
-    la $s7, frameBuffer    # $s7 = base address
-    lw $t0, displayWidth   # $t0 = display width
-    mul $t0, $s4, $t0      # $t0 = Y * display width
-    add $t0, $t0, $s3      # $t0 = Y * display width + X
-    sll $t0, $t0, 2        # $t0 = 4 * (Y * display width + X)
-    add $s7, $s7, $t0      # $s7 = address of current pixel
-    
-    sw $t4, 0($s7)         # Store color at current pixel
-    
-    addi $s3, $s3, 1       # Increment X
-    addi $s4, $s4, -1      # Decrement Y
-    blt $s3, $s2, arrowheadBottomLoop # Continue if not done
-    
-    # Fill the arrowhead triangle
-    move $s3, $t7          # $s3 = current X
-    
-arrowheadFillLoop:
-    move $s4, $s0          # $s4 = top Y
-    addi $s4, $s4, 1       # Adjust to be inside the triangle
-    
-    # Calculate the height of the triangle at this X
-    sub $t0, $s3, $t7      # $t0 = X - startX
-    sll $t0, $t0, 1        # $t0 = 2 * (X - startX)
-    add $s5, $s0, $t0      # $s5 = top Y + 2 * (X - startX)
-    
-    # Fill the column
-arrowheadColumnLoop:
-    # Calculate pixel address
-    la $s7, frameBuffer    # $s7 = base address
-    lw $t0, displayWidth   # $t0 = display width
-    mul $t0, $s4, $t0      # $t0 = Y * display width
-    add $t0, $t0, $s3      # $t0 = Y * display width + X
-    sll $t0, $t0, 2        # $t0 = 4 * (Y * display width + X)
-    add $s7, $s7, $t0      # $s7 = address of current pixel
-    
-    sw $t4, 0($s7)         # Store color at current pixel
-    
-    addi $s4, $s4, 1       # Increment Y
-    blt $s4, $s5, arrowheadColumnLoop # Continue if not at bottom
-    
-    addi $s3, $s3, 1       # Move to next column
-    blt $s3, $s2, arrowheadFillLoop # Continue if not at triangle tip
-    
-    # Exit program
-    li $v0, 10             # Exit syscall
-    syscall
+.text                           # Start of code segment
+.globl main                     # Declare main as global for startup
+main:                           # Program entry point
+    addi $sp, $sp, -20          # $sp <- allocate 20 bytes on stack 
+                                # 0($sp): bar color
+                                # 4($sp): arrowhead color
+                                # 8($sp): temporary storage
+                                # 12($sp): start column ($s6 equivalent)
+                                # 16($sp): start row ($s7 equivalent)
+
+    la   $s0, frameBuffer       # $s0 <- base address of framebuffer for pixel drawing
+
+    la   $t9, M                 # $t9 <- base address of M block (contains multiple parameters)
+    lw   $s1, 0($t9)            # $s1 <- M (outer size)
+    lw   $s2, 4($t9)            # $s2 <- N (inner size)
+    lw   $s3, 8($t9)            # $s3 <- cr (red color component)
+    lw   $s4, 12($t9)           # $s4 <- cg (green color component)
+    lw   $s5, 16($t9)           # $s5 <- cb (blue color component)
+
+    li   $t9, 1                 # $t9 <- 1 (can_draw flag, assume drawing is possible)
+
+    la   $t8, DISPLAY_WIDTH     # Load address of display width
+    lw   $t1, 0($t8)            # $t1 <- display width
+    la   $t8, DISPLAY_HEIGHT    # Load address of display height
+    lw   $t2, 0($t8)            # $t2 <- display height
+
+    slt  $t3, $s2, $s1          # $t3 <- 1 if N < M
+    beq  $t3, $zero, cant_draw  # If N >= M, cannot draw (jump to cant_draw)
+
+    sub  $t0, $s1, $s2          # $t0 <- thickness = M - N
+
+    li   $t3, 16                # $t3 <- constant 16 (padding/margin)
+    sra  $t4, $t0, 1            # $t4 <- thickness / 2
+    add  $t5, $t3, $t4          # $t5 <- 16 + (thickness/2)
+    add  $t6, $s2, $t5          # $t6 <- total width required
+    slt  $t7, $t1, $t6          # $t7 <- 1 if screen width is less than required width
+    bne  $t7, $zero, cant_draw  # If true, cannot draw
+
+    li   $t3, 8                # $t3 <- constant 8 
+    add  $t6, $s1, $t3          # $t6 <- total height required
+    slt  $t7, $t2, $t6          # $t7 <- 1 if screen height is less than required height
+    bne  $t7, $zero, cant_draw  # If true, cannot draw
+
+    # Remove the odd number checks as they were preventing valid shapes
+    
+    sra  $t4, $t0, 1            # $t4 <- thickness / 2
+    addi  $t3, $s1, 8           # $t3 <- M + 8
+    add  $t3, $t4, $t3          # $t3 <- M+8+thickness/2 = total length
+    sub  $t5, $t1, $t3          # $t5 <- horizontal centering offset
+    sra  $t6, $t5, 1            # $t6 <- start column by dividing offset by 2
+    sw   $t6, 12($sp)           # Store start column on stack (replacing $s6)
+    addi $t3, $s1, 4		# $t6 <- Add 1/2 Overhang to height ($s1 (M) + 4)
+    sub  $t5, $t2, $t3          # $t5 <- vertical centering offset
+    sra  $t6, $t5, 1            # $t6 <- start row by dividing offset by 2
+    sw   $t6, 16($sp)           # Store start row on stack (replacing $s7)
+
+    j build_colors              # Jump to color computation section
+
+cant_draw:                      # Label for drawing not possible
+    li $t9, 0                   # $t9 <- 0 (set can_draw flag to 0)
+
+build_colors:                   # Color computation section
+    sll  $t4, $s3, 16           # $t4 <- red component shifted left by 16 bits
+    sll  $t5, $s4, 8            # $t5 <- green component shifted left by 8 bits
+    or   $t6, $t4, $t5          # $t6 <- combined red and green components
+    or   $t6, $t6, $s5          # $t6 <- add blue component to form full color
+    sw   $t6, 4($sp)            # Save arrowhead color on stack
+
+    li   $t7, 255               # $t7 <- maximum color value
+    sll  $t4, $s3, 2            # $t4 <- red * 4 for scaling
+    slt  $t8, $t7, $t4          # $t8 <- 1 if scaled red exceeds 255
+    beq  $t8, $zero, ok_r       # If not, skip clamping
+    li   $t4, 255               # $t4 <- clamp red to 255
+ok_r: sll $t4, $t4, 16          # $t4 <- shift red to correct color position
+
+    sll  $t5, $s4, 2            # $t5 <- green * 4 for scaling
+    slt  $t8, $t7, $t5          # $t8 <- 1 if scaled green exceeds 255
+    beq  $t8, $zero, ok_g       # If not, skip clamping
+    li   $t5, 255               # $t5 <- clamp green to 255
+ok_g: sll $t5, $t5, 8           # $t5 <- shift green to correct color position
+
+    sll  $t6, $s5, 2            # $t6 <- blue * 4 for scaling
+    slt  $t8, $t7, $t6          # $t8 <- 1 if scaled blue exceeds 255
+    beq  $t8, $zero, ok_b       # If not, skip clamping
+    li   $t6, 255               # $t6 <- clamp blue to 255
+ok_b:
+    or   $t8, $t4, $t5          # $t8 <- combine red and green components
+    or   $t8, $t8, $t6          # $t8 <- add blue component
+    sw   $t8, 0($sp)            # Save bar color on stack
+
+    li $t4, 0                   # $t4 <- row counter initialized to 0
+fill_rows:
+    li $t5, 0                   # $t5 <- column counter initialized to 0
+fill_cols:
+    li $t6, 0x00FFFF00          # $t6 <- yellow color (ARGB format)
+    mul $t7, $t4, $t1           # $t7 <- pixel offset: row * width
+    add $t7, $t7, $t5           # $t7 <- add column to pixel offset
+    sll $t7, $t7, 2             # $t7 <- multiply by 4 to get byte offset
+    add $t7, $t7, $s0           # $t7 <- add frame buffer base address
+    sw  $t6, 0($t7)             # Write yellow pixel to frame buffer
+    addi $t5, $t5, 1            # $t5 <- increment column
+    slt $t3, $t5, $t1           # $t3 <- 1 if column < display width
+    bne $t3, $zero, fill_cols   # If not done, continue filling columns
+    addi $t4, $t4, 1            # $t4 <- increment row
+    slt $t3, $t4, $t2           # $t3 <- 1 if row < display height
+    bne $t3, $zero, fill_rows   # If not done, continue filling rows
+
+    beq $t9, $zero, exit        # If can't draw (flag is 0), exit program
+    j draw_shape                # Otherwise, jump to shape drawing routine
+
+draw_shape:
+    lw $t6, 0($sp)              # $t6 <- bar color from stack
+    lw $t7, 4($sp)              # $t7 <- arrowhead color from stack
+    lw $s6, 12($sp)             # Load start column from stack (replacing $s6)
+    lw $s7, 16($sp)             # Load start row from stack (replacing $s7)
+
+    li $t4, 0                   # $t4 <- row counter for vertical bar
+vbar_row:
+    li $t5, 0                   # $t5 <- column counter for vertical bar
+vbar_col:
+    add $t8, $s7, $t4           # $t8 <- current row
+    add $t9, $s6, $t5           # $t9 <- current column
+    mul $t3, $t8, $t1           # $t3 <- row * display width
+    add $t3, $t3, $t9           # $t3 <- add column to get pixel offset
+    sll $t3, $t3, 2             # $t3 <- multiply by 4 to get byte offset
+    add $t3, $t3, $s0           # $t3 <- add frame buffer base address
+    sw  $t6, 0($t3)             # Write bar color pixel
+    addi $t5, $t5, 1            # $t5 <- increment column
+    slt $t3, $t5, $t0           # $t3 <- 1 if column < bar thickness
+    bne $t3, $zero, vbar_col    # If not done, continue filling vertical bar columns
+    addi $t4, $t4, 1            # $t4 <- increment row
+    slt $t3, $t4, $s1           # $t3 <- 1 if row < outer size
+    bne $t3, $zero, vbar_row    # If not done, continue filling vertical bar rows
+
+    li $t4, 0                   # $t4 <- row counter for horizontal bar
+hbar_row:
+    li $t5, 0                   # $t5 <- column counter for horizontal bar
+hbar_col:
+    add $t8, $s7, $s2           # $t8 <- starting row for horizontal bar
+    add $t8, $t8, $t4           # $t8 <- add current row offset
+    add $t9, $s6, $t5           # $t9 <- current column
+    mul $t3, $t8, $t1           # $t3 <- row * display width
+    add $t3, $t3, $t9           # $t3 <- add column to get pixel offset
+    sll $t3, $t3, 2             # $t3 <- multiply by 4 to get byte offset
+    add $t3, $t3, $s0           # $t3 <- add frame buffer base address
+    sw  $t6, 0($t3)             # Write bar color pixel
+    addi $t5, $t5, 1            # $t5 <- increment column
+    slt $t3, $t5, $s1           # $t3 <- 1 if column < outer size
+    bne $t3, $zero, hbar_col    # If not done, continue filling horizontal bar columns
+    addi $t4, $t4, 1            # $t4 <- increment row
+    slt $t3, $t4, $t0           # $t3 <- 1 if row < bar thickness
+    bne $t3, $zero, hbar_row    # If not done, continue filling horizontal bar rows
+
+    li $t4, 0                   # $t4 <- arrow drawing loop counter
+arrow_loop:
+    li $t5, 16                  # $t5 <- base offset for arrow
+    add $t5, $t5, $t0           # $t5 <- add thickness to base offset
+    sll $t6, $t4, 1             # $t6 <- multiply current counter by 2
+    sub $t7, $t5, $t6           # $t7 <- calculate arrow width at this level
+    slt $t8, $zero, $t7         # $t8 <- 1 if width is positive
+    beq $t8, $zero, arrow_done  # If width is zero or negative, exit arrow loop
+
+    li $t9, 8                   # $t9 <- constant 8
+    sub $t9, $t9, $t4           # $t9 <- adjust vertical position
+    add $t3, $s7, $s2           # $t3 <- add base row offset
+    sub $t3, $t3, $t9           # $t3 <- adjust vertical position further
+
+    li $t5, 0                   # $t5 <- row counter for arrow
+arrow_row_loop:
+    slt $t8, $t5, $t7           # $t8 <- 1 if current row is within arrow width
+    beq $t8, $zero, arrow_next  # If not, move to next arrow level
+    add $t6, $t3, $t5           # $t6 <- calculate current row
+    add $t9, $s6, $s1           # $t9 <- add base column offset
+    add $t9, $t9, $t4           # $t9 <- adjust column position
+    mul $t8, $t6, $t1           # $t8 <- row * display width
+    add $t8, $t8, $t9           # $t8 <- add column to get pixel offset
+    sll $t8, $t8, 2             # $t8 <- multiply by 4 to get byte offset
+    add $t8, $t8, $s0           # $t8 <- add frame buffer base address
+    sw $t7, 8($sp)              # Temporarily store loop variable
+    lw $t7, 4($sp)              # $t7 <- load arrowhead color
+    sw $t7, 0($t8)              # Write arrowhead color pixel
+    lw $t7, 8($sp)              # Restore loop variable
+    addi $t5, $t5, 1            # $t5 <- increment row
+    j arrow_row_loop            # Continue arrow row loop
+arrow_next:
+    addi $t4, $t4, 1            # $t4 <- increment arrow level
+    j arrow_loop                # Continue arrow drawing loop
+arrow_done:
+
+exit:
+    addi $sp, $sp, 20           # Restore stack pointer (changed from 12 to 20)
+    li $v0, 10                  # $v0 <- system call code for program exit
+    syscall                     # Exit program
