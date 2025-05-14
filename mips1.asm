@@ -1,13 +1,14 @@
 #IVERSON
-.data                           # Start of data segment (static/predefined data)
+.data # Start of data segment (static/predefined data)
+# DONOTMODIFYTHISLINE
 frameBuffer: .space 0x80000     # $s0 <- base address for 512x256 pixels, 4 bytes per pixel
-M: .word 248                    # $s1 <- outer size of L-shape (width/height)
-N: .word 5                     # $s2 <- inner square size (used to calculate thickness)
+M: .word 100                    # $s1 <- outer size of L-shape (width/height)
+N: .word 60                     # $s2 <- inner square size (used to calculate thickness)
 cr: .word 0                     # $s3 <- red component for arrowhead color (0-255)
 cg: .word 63                    # $s4 <- green component for arrowhead color (0-255)
 cb: .word 0                     # $s5 <- blue component for arrowhead color (0-255)
-DISPLAY_WIDTH: .word 512        # Display width in pixels
-DISPLAY_HEIGHT: .word 256       # Display height in pixels
+# DONOTMODIFYTHISLINE
+# Your other variables go BELOW here only
 
 .text                           # Start of code segment
 .globl main                     # Declare main as global for startup
@@ -30,10 +31,9 @@ main:                           # Program entry point
 
     li   $t9, 1                 # $t9 <- 1 (can_draw flag, assume drawing is possible)
 
-    la   $t8, DISPLAY_WIDTH     # Load address of display width
-    lw   $t1, 0($t8)            # $t1 <- display width
-    la   $t8, DISPLAY_HEIGHT    # Load address of display height
-    lw   $t2, 0($t8)            # $t2 <- display height
+    addi   $t1, $zero, 512     # Load display width
+    addi   $t2,$zero, 256    # Load display height
+
 
     slt  $t3, $s2, $s1          # $t3 <- 1 if N < M
     beq  $t3, $zero, cant_draw  # If N >= M, cannot draw (jump to cant_draw)
