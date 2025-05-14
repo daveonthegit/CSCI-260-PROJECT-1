@@ -1,5 +1,5 @@
 #IVERSON
-.data # Start of data segment (static/predefined data)
+.data
 # DONOTMODIFYTHISLINE
 frameBuffer: .space 0x80000     # $s0 <- base address for 512x256 pixels, 4 bytes per pixel
 M: .word 100                    # $s1 <- outer size of L-shape (width/height)
